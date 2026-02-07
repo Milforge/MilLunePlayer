@@ -400,11 +400,11 @@
        (async () => {
            try {
                // 加载字体
-               const font = new FontFace("milFont", "url(/resources/milres/milfont.ttf)");
+               const font = new FontFace("milFont", "url(./resources/milres/milfont.ttf)");
                document.fonts.add(await font.load());
 
                // 加载引擎模块 (假设路径正确)
-               const h5bind = await import("/src/h5bind.js");
+               const h5bind = await import("./src/h5bind.js");
                window.MilLunePlayer = h5bind.default.MilLunePlayer;
                
                state.isEngineReady = true;
@@ -767,14 +767,14 @@
                const illuUrl = state.illuFile ? readFile(state.illuFile) : null;
 
                state.playerInstance = new window.MilLunePlayer({
-                   buildDirectory: "/build/",
-                   resourcePackPath: "/resources/milres/default.mrp",
+                   buildDirectory: "./build/",
+                   resourcePackPath: "./resources/milres/default.mrp",
                    canvas: els.canvas,
                    chartPath: chartUrl,
                    audioPath: audioUrl,
                    illuPath: illuUrl,
                    fontFam: "milFont",
-                   pauseBtnPath: "/resources/milres/buttons/light/pause.png",
+                   pauseBtnPath: "./resources/milres/buttons/light/pause.png",
                    storyboardTextureLoader: storyboardTextureLoader,
                    isAutoplay: els.checkAutoplay.checked
                });
