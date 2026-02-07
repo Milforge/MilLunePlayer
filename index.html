@@ -1,0 +1,861 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+   <meta charset="UTF-8">
+   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+   <title>Milthm 谱面播放器</title>
+   <style>
+       :root {
+           --bg: #1a1a1a;
+           --panel: #252525;
+           --text: #e0e0e0;
+           --accent: #4a90e2;
+           --border: #333;
+       }
+
+       body {
+           margin: 0;
+           overflow: hidden;
+           background-color: var(--bg);
+           color: var(--text);
+           font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+           display: flex;
+           justify-content: center;
+           align-items: center;
+           height: 100vh;
+           width: 100vw;
+       }
+
+       /* 初始加载界面 */
+       #loading-screen {
+           position: absolute;
+           top: 0;
+           left: 0;
+           width: 100%;
+           height: 100%;
+           display: flex;
+           flex-direction: column;
+           justify-content: center;
+           align-items: center;
+           z-index: 10;
+           background: var(--bg);
+           transition: opacity 0.3s;
+       }
+
+       /* 设置面板 */
+       #setup-panel {
+           background: var(--panel);
+           padding: 2rem;
+           border-radius: 8px;
+           box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+           width: 90%;
+           max-width: 500px;
+           display: flex;
+           flex-direction: column;
+           gap: 1rem;
+           z-index: 20;
+       }
+
+       h2 {
+           margin: 0 0 0.5rem 0;
+           font-weight: 400;
+           text-align: center;
+           color: #fff;
+       }
+
+       .input-group {
+           display: flex;
+           flex-direction: column;
+           gap: 0.5rem;
+       }
+
+       label {
+           font-size: 0.9rem;
+           color: #aaa;
+       }
+
+       input[type="file"] {
+           display: none;
+       }
+
+       .file-btn {
+           background: var(--bg);
+           border: 1px solid var(--border);
+           color: var(--text);
+           padding: 10px;
+           border-radius: 4px;
+           cursor: pointer;
+           text-align: center;
+           transition: background 0.2s;
+           overflow: hidden;
+           text-overflow: ellipsis;
+           white-space: nowrap;
+       }
+
+       .file-btn:hover {
+           background: #333;
+       }
+
+       .file-btn.active {
+           border-color: var(--accent);
+           color: var(--accent);
+       }
+
+       .options-row {
+           display: flex;
+           justify-content: space-between;
+           align-items: center;
+           margin-top: 0.5rem;
+       }
+
+       .checkbox-wrapper {
+           display: flex;
+           align-items: center;
+           gap: 8px;
+           cursor: pointer;
+       }
+
+       input[type="checkbox"] {
+           width: 18px;
+           height: 18px;
+           accent-color: var(--accent);
+           cursor: pointer;
+       }
+
+       .btn-primary {
+           background: var(--accent);
+           color: white;
+           border: none;
+           padding: 12px;
+           border-radius: 4px;
+           font-size: 1rem;
+           cursor: pointer;
+           margin-top: 1rem;
+           transition: filter 0.2s;
+       }
+
+       .btn-primary:hover {
+           filter: brightness(1.1);
+       }
+
+       .btn-primary:disabled {
+           background: #555;
+           cursor: not-allowed;
+           filter: none;
+       }
+
+       /* 游戏画布 */
+       #main-canvas {
+           position: absolute;
+           top: 0;
+           left: 0;
+           width: 100%;
+           height: 100%;
+           z-index: 1;
+           display: none; /* 初始隐藏 */
+       }
+
+       /* 游戏内控制栏 */
+       #game-controls {
+           position: absolute;
+           top: 10px;
+           right: 10px;
+           z-index: 30;
+           display: none;
+           gap: 10px;
+       }
+
+       .icon-btn {
+           background: rgba(0, 0, 0, 0.6);
+           border: 1px solid rgba(255, 255, 255, 0.2);
+           color: white;
+           width: 40px;
+           height: 40px;
+           border-radius: 50%;
+           cursor: pointer;
+           display: flex;
+           align-items: center;
+           justify-content: center;
+           font-size: 18px;
+           backdrop-filter: blur(4px);
+           transition: background 0.2s;
+       }
+
+       .icon-btn:hover {
+           background: rgba(255, 255, 255, 0.2);
+       }
+
+       #status-msg {
+           color: #ff6b6b;
+           font-size: 0.85rem;
+           text-align: center;
+           min-height: 1.2em;
+       }
+
+       /* 游戏加载遮罩 */
+       #game-loading-overlay {
+           position: absolute;
+           top: 0;
+           left: 0;
+           width: 100%;
+           height: 100%;
+           background: rgba(0, 0, 0, 0.9);
+           display: none;
+           flex-direction: column;
+           justify-content: center;
+           align-items: center;
+           z-index: 25;
+           color: white;
+       }
+
+       .spinner {
+           width: 50px;
+           height: 50px;
+           border: 4px solid rgba(255, 255, 255, 0.3);
+           border-top: 4px solid var(--accent);
+           border-radius: 50%;
+           animation: spin 1s linear infinite;
+           margin-bottom: 20px;
+       }
+
+       @keyframes spin {
+           0% { transform: rotate(0deg); }
+           100% { transform: rotate(360deg); }
+       }
+
+       .loading-text {
+           font-size: 1.2rem;
+           color: #ccc;
+       }
+
+       /* Level选择弹窗 */
+       #level-select-modal {
+           position: fixed;
+           top: 0;
+           left: 0;
+           width: 100%;
+           height: 100%;
+           background: rgba(0, 0, 0, 0.8);
+           display: none;
+           justify-content: center;
+           align-items: center;
+           z-index: 100;
+       }
+
+       #level-select-content {
+           background: var(--panel);
+           padding: 2rem;
+           border-radius: 8px;
+           max-width: 400px;
+           width: 90%;
+           max-height: 80vh;
+           overflow-y: auto;
+       }
+
+       #level-select-content h3 {
+           margin-top: 0;
+           text-align: center;
+           color: #fff;
+       }
+
+       .level-item {
+           background: var(--bg);
+           border: 1px solid var(--border);
+           padding: 15px;
+           margin: 10px 0;
+           border-radius: 4px;
+           cursor: pointer;
+           transition: all 0.2s;
+       }
+
+       .level-item:hover {
+           border-color: var(--accent);
+           background: #333;
+       }
+
+       .level-difficulty {
+           color: var(--accent);
+           font-weight: bold;
+           font-size: 1.1rem;
+       }
+
+       .level-info {
+           color: #888;
+           font-size: 0.9rem;
+           margin-top: 5px;
+       }
+   </style>
+</head>
+<body>
+
+   <!-- 初始加载提示 -->
+   <div id="loading-screen">
+       <h1>正在加载引擎...</h1>
+   </div>
+
+   <!-- 设置面板 -->
+   <div id="setup-panel">
+       <h2>Milthm 谱面播放器</h2>
+       
+       <!-- 文件选择 -->
+       <div class="input-group">
+           <label>谱面文件 (JSON / ZIP)</label>
+           <label class="file-btn" id="btn-chart" for="input-chart">点击选择文件</label>
+           <input type="file" id="input-chart" accept=".json,.zip">
+       </div>
+
+       <div class="input-group">
+           <label>音频文件 (自动识别ZIP可跳过)</label>
+           <label class="file-btn" id="btn-audio" for="input-audio">点击选择文件 (可选)</label>
+           <input type="file" id="input-audio" accept="audio/*">
+       </div>
+
+       <div class="input-group">
+           <label>背景插图 (自动识别ZIP可跳过)</label>
+           <label class="file-btn" id="btn-illu" for="input-illu">点击选择文件 (可选)</label>
+           <input type="file" id="input-illu" accept="image/*">
+       </div>
+
+       <div class="options-row">
+           <label class="checkbox-wrapper">
+               <input type="checkbox" id="check-autoplay">
+               <span>自动演示 (Autoplay)</span>
+           </label>
+       </div>
+
+       <div id="status-msg"></div>
+
+       <button class="btn-primary" id="btn-start" disabled>开始游戏</button>
+   </div>
+
+   <!-- Level选择弹窗 -->
+   <div id="level-select-modal">
+       <div id="level-select-content">
+           <h3>选择难度</h3>
+           <div id="level-list"></div>
+       </div>
+   </div>
+
+   <!-- 游戏内加载遮罩 -->
+   <div id="game-loading-overlay">
+       <div class="spinner"></div>
+       <div class="loading-text">正在初始化播放器...</div>
+   </div>
+
+   <!-- 游戏控制栏 -->
+   <div id="game-controls">
+       <button class="icon-btn" id="btn-restart" title="重新开始">↺</button>
+       <button class="icon-btn" id="btn-fullscreen" title="全屏">⛶</button>
+       <button class="icon-btn" id="btn-quit" title="退出">✕</button>
+   </div>
+
+   <canvas id="main-canvas"></canvas>
+
+   <!-- JSZip 用于解析 ZIP (CDN 引入，轻量) -->
+   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+   
+   <script>
+       // --- 状态管理 ---
+       const state = {
+           chartFile: null,
+           audioFile: null,
+           illuFile: null,
+           isZipMode: false,
+           zipFiles: null, // JSZip 对象
+           zipType: null, // 'meta' or 'info'
+           isEngineReady: false,
+           playerInstance: null,
+           storyboardAssets: new Map(), // 预加载的故事板资源 name -> Image
+           currentLevel: null // 当前选择的level (info.json模式)
+       };
+
+       // --- DOM 元素 ---
+       const els = {
+           loading: document.getElementById('loading-screen'),
+           setupPanel: document.getElementById('setup-panel'),
+           gameControls: document.getElementById('game-controls'),
+           gameLoadingOverlay: document.getElementById('game-loading-overlay'),
+           levelModal: document.getElementById('level-select-modal'),
+           levelList: document.getElementById('level-list'),
+           canvas: document.getElementById('main-canvas'),
+           inputs: {
+               chart: document.getElementById('input-chart'),
+               audio: document.getElementById('input-audio'),
+               illu: document.getElementById('input-illu')
+           },
+           btns: {
+               chart: document.getElementById('btn-chart'),
+               audio: document.getElementById('btn-audio'),
+               illu: document.getElementById('btn-illu'),
+               start: document.getElementById('btn-start'),
+               restart: document.getElementById('btn-restart'),
+               fullscreen: document.getElementById('btn-fullscreen'),
+               quit: document.getElementById('btn-quit')
+           },
+           checkAutoplay: document.getElementById('check-autoplay'),
+           status: document.getElementById('status-msg')
+       };
+
+       // --- 初始化引擎 ---
+       (async () => {
+           try {
+               // 加载字体
+               const font = new FontFace("milFont", "url(/resources/milres/milfont.ttf)");
+               document.fonts.add(await font.load());
+
+               // 加载引擎模块 (假设路径正确)
+               const h5bind = await import("/src/h5bind.js");
+               window.MilLunePlayer = h5bind.default.MilLunePlayer;
+               
+               state.isEngineReady = true;
+               els.loading.style.display = 'none';
+               checkReady();
+           } catch (e) {
+               console.error(e);
+               els.loading.innerHTML = `<h1>引擎加载失败</h1><p style="color:#888">${e.message}</p>`;
+           }
+       })();
+
+       // --- 文件处理逻辑 ---
+       
+       // 更新按钮文本
+       function updateFileBtn(btn, text, isActive = true) {
+           btn.textContent = text;
+           if (isActive) btn.classList.add('active');
+           else btn.classList.remove('active');
+       }
+
+       // 读取文件为 URL
+       function readFile(file) {
+           return URL.createObjectURL(file);
+       }
+
+       // 预加载ZIP中的所有图片资源
+       async function preloadZipImages(zip) {
+           state.storyboardAssets.clear();
+           const imageExts = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp'];
+           const imageFiles = [];
+           
+           // 收集所有图片文件
+           zip.forEach((relativePath, file) => {
+               if (!file.dir) {
+                   const ext = relativePath.slice(relativePath.lastIndexOf('.')).toLowerCase();
+                   if (imageExts.includes(ext)) {
+                       imageFiles.push({ path: relativePath, file: file });
+                   }
+               }
+           });
+
+           // 并行加载所有图片
+           const loadPromises = imageFiles.map(async ({ path, file }) => {
+               try {
+                   const blob = await file.async('blob');
+                   const url = URL.createObjectURL(blob);
+                   const img = new Image();
+                   
+                   await new Promise((resolve, reject) => {
+                       img.onload = resolve;
+                       img.onerror = reject;
+                       img.src = url;
+                   });
+
+                   // 存储不带路径的文件名作为key
+                   const fileName = path.split('/').pop();
+                   state.storyboardAssets.set(fileName.toLowerCase(), img);
+                   
+                   // 同时存储带路径的版本
+                   state.storyboardAssets.set(path.toLowerCase(), img);
+                   
+                   return true;
+               } catch (e) {
+                   console.warn(`Failed to load image: ${path}`, e);
+                   return false;
+               }
+           });
+
+           await Promise.all(loadPromises);
+           console.log(`Preloaded ${state.storyboardAssets.size} images from ZIP`);
+       }
+
+       // 故事板资源加载器
+       function storyboardTextureLoader(name) {
+           // 清理名称
+           const cleanName = name.trim();
+           
+           // 1. 直接查找
+           let img = state.storyboardAssets.get(cleanName.toLowerCase());
+           if (img) return img;
+           
+           // 2. 如果name有后缀名，直接搜索
+           const hasExt = /\.(png|jpg|jpeg|gif|webp|bmp)$/i.test(cleanName);
+           if (hasExt) {
+               // 尝试各种路径组合
+               const variations = [
+                   cleanName.toLowerCase(),
+                   cleanName.split('/').pop().toLowerCase(),
+                   '/' + cleanName.toLowerCase(),
+                   cleanName.replace(/^\//, '').toLowerCase()
+               ];
+               
+               for (const v of variations) {
+                   img = state.storyboardAssets.get(v);
+                   if (img) return img;
+               }
+           } else {
+               // 3. 没有后缀名，尝试添加常见后缀搜索
+               const exts = ['.png', '.jpg', '.jpeg', '.gif', '.webp'];
+               for (const ext of exts) {
+                   const nameWithExt = cleanName + ext;
+                   img = state.storyboardAssets.get(nameWithExt.toLowerCase());
+                   if (img) return img;
+                   
+                   // 也尝试带斜杠的版本
+                   img = state.storyboardAssets.get(('/' + nameWithExt).toLowerCase());
+                   if (img) return img;
+               }
+           }
+           
+           // 4. 对于info.json模式，检查storyboard_assets映射
+           if (state.zipType === 'info' && state.currentLevel && state.currentLevel.FileMap) {
+               const sbAssets = state.currentLevel.FileMap.storyboard_assets || {};
+               if (sbAssets[cleanName]) {
+                   const mappedPath = sbAssets[cleanName];
+                   img = state.storyboardAssets.get(mappedPath.toLowerCase());
+                   if (img) return img;
+               }
+           }
+           
+           // 没找到，返回null
+           console.warn(`Storyboard asset not found: ${name}`);
+           return null;
+       }
+
+       // 显示Level选择弹窗
+       function showLevelSelect(levels) {
+           return new Promise((resolve) => {
+               els.levelList.innerHTML = '';
+               
+               levels.forEach((level, index) => {
+                   const item = document.createElement('div');
+                   item.className = 'level-item';
+                   
+                   const diff = level.Difficulty || 'Unknown';
+                   const mapper = level.Beatmapper || 'Unknown';
+                   const diffValue = level.DifficultyValue || 0;
+                   
+                   item.innerHTML = `
+                       <div class="level-difficulty">${diff} ${diffValue > 0 ? diffValue.toFixed(1) : ''}</div>
+                       <div class="level-info">谱师: ${mapper}</div>
+                   `;
+                   
+                   item.addEventListener('click', () => {
+                       els.levelModal.style.display = 'none';
+                       resolve(level);
+                   });
+                   
+                   els.levelList.appendChild(item);
+               });
+               
+               els.levelModal.style.display = 'flex';
+           });
+       }
+
+       // 解析 ZIP
+       async function handleZip(file) {
+           try {
+               const zip = await JSZip.loadAsync(file);
+               state.zipFiles = zip;
+               
+               // 预加载所有图片资源
+               await preloadZipImages(zip);
+               
+               // 检查是否有 meta.json
+               const metaFile = zip.file("meta.json");
+               if (metaFile) {
+                   // meta.json 模式
+                   const metaContent = await metaFile.async("string");
+                   const meta = JSON.parse(metaContent);
+
+                   if (!meta.chart_file) {
+                       throw new Error("meta.json 中缺少 chart_file 字段");
+                   }
+
+                   const getZipFile = (filename) => {
+                       if (!filename) return null;
+                       while (filename.length && filename[0] === ".") filename = filename.slice(1);
+                       let f = zip.file(filename);
+                       if (!f && filename.startsWith('/')) f = zip.file(filename.slice(1));
+                       if (!f && !filename.startsWith('/')) f = zip.file('/' + filename);
+                       return f;
+                   };
+
+                   const chartBlob = await getZipFile(meta.chart_file).async("blob");
+                   const audioBlob = meta.audio_file ? await getZipFile(meta.audio_file).async("blob") : null;
+                   const illuBlob = meta.image_file ? await getZipFile(meta.image_file).async("blob") : null;
+
+                   state.chartFile = new File([chartBlob], meta.chart_file, {type: "application/json"});
+                   state.audioFile = audioBlob ? new File([audioBlob], meta.audio_file, {type: "audio/mpeg"}) : null;
+                   state.illuFile = illuBlob ? new File([illuBlob], meta.image_file, {type: "image/png"}) : null;
+                   state.zipType = 'meta';
+                   state.currentLevel = null;
+
+                   updateFileBtn(els.btns.chart, `📦 ZIP(meta): ${file.name}`);
+                   if(state.audioFile) updateFileBtn(els.btns.audio, `🎵 ${meta.audio_file}`);
+                   if(state.illuFile) updateFileBtn(els.btns.illu, `🖼️ ${meta.image_file}`);
+
+                   els.status.textContent = "ZIP 解析成功 (meta.json)";
+                   checkReady();
+                   return;
+               }
+
+               // 检查是否有 info.json
+               const infoFile = zip.file("info.json");
+               if (infoFile) {
+                   // info.json 模式
+                   const infoContent = await infoFile.async("string");
+                   const info = JSON.parse(infoContent);
+
+                   if (!info.Levels || info.Levels.length === 0) {
+                       throw new Error("info.json 中没有 Levels");
+                   }
+
+                   state.zipType = 'info';
+                   
+                   // 显示Level选择
+                   const selectedLevel = await showLevelSelect(info.Levels);
+                   state.currentLevel = selectedLevel;
+
+                   // 使用选中的Level
+                   const fileMap = selectedLevel.FileMap;
+                   
+                   // 获取文件
+                   const getFileFromMap = (path) => {
+                       if (!path) return null;
+                       // 移除开头的斜杠
+                       const cleanPath = path.replace(/^\//, '');
+                       return zip.file(cleanPath) || zip.file(path);
+                   };
+
+                   const chartZipFile = getFileFromMap(fileMap.beatmap);
+                   const audioZipFile = fileMap.song && fileMap.song.length > 0 ? 
+                       getFileFromMap(fileMap.song[0].file) : null;
+                   const illuZipFile = getFileFromMap(fileMap.illu);
+
+                   if (!chartZipFile) {
+                       throw new Error("找不到谱面文件: " + fileMap.beatmap);
+                   }
+
+                   const chartBlob = await chartZipFile.async("blob");
+                   const audioBlob = audioZipFile ? await audioZipFile.async("blob") : null;
+                   const illuBlob = illuZipFile ? await illuZipFile.async("blob") : null;
+
+                   state.chartFile = new File([chartBlob], "beatmap.json", {type: "application/json"});
+                   state.audioFile = audioBlob ? new File([audioBlob], "song.ogg", {type: "audio/ogg"}) : null;
+                   state.illuFile = illuBlob ? new File([illuBlob], "illu.png", {type: "image/png"}) : null;
+
+                   updateFileBtn(els.btns.chart, `📦 ZIP(info): ${file.name} [${selectedLevel.Difficulty}]`);
+                   if(state.audioFile) updateFileBtn(els.btns.audio, `🎵 audio`);
+                   if(state.illuFile) updateFileBtn(els.btns.illu, `🖼️ illu`);
+
+                   els.status.textContent = `已选择: ${selectedLevel.Difficulty}`;
+                   checkReady();
+                   return;
+               }
+
+               throw new Error("ZIP中既没有 meta.json 也没有 info.json");
+
+           } catch (err) {
+               els.status.textContent = "ZIP 错误: " + err.message;
+               console.error(err);
+               resetFiles();
+           }
+       }
+
+       function resetFiles() {
+           state.chartFile = null;
+           state.audioFile = null;
+           state.illuFile = null;
+           state.isZipMode = false;
+           state.zipType = null;
+           state.zipFiles = null;
+           state.currentLevel = null;
+           state.storyboardAssets.clear();
+           els.inputs.chart.value = '';
+           els.inputs.audio.value = '';
+           els.inputs.illu.value = '';
+           updateFileBtn(els.btns.chart, "点击选择文件", false);
+           updateFileBtn(els.btns.audio, "点击选择文件 (可选)", false);
+           updateFileBtn(els.btns.illu, "点击选择文件 (可选)", false);
+       }
+
+       // 事件监听
+       els.inputs.chart.addEventListener('change', async (e) => {
+           const file = e.target.files[0];
+           if (!file) return;
+
+           if (file.name.endsWith('.zip')) {
+               await handleZip(file);
+           } else {
+               state.chartFile = file;
+               state.isZipMode = false;
+               state.zipType = null;
+               state.storyboardAssets.clear();
+               updateFileBtn(els.btns.chart, `📄 ${file.name}`);
+               checkReady();
+           }
+       });
+
+       els.inputs.audio.addEventListener('change', (e) => {
+           if (state.isZipMode) return; // ZIP模式下忽略单独选择
+           const file = e.target.files[0];
+           if (file) {
+               state.audioFile = file;
+               updateFileBtn(els.btns.audio, `🎵 ${file.name}`);
+           }
+       });
+
+       els.inputs.illu.addEventListener('change', (e) => {
+           if (state.isZipMode) return;
+           const file = e.target.files[0];
+           if (file) {
+               state.illuFile = file;
+               updateFileBtn(els.btns.illu, `🖼️ ${file.name}`);
+           }
+       });
+
+       function checkReady() {
+           const ready = state.isEngineReady && state.chartFile;
+           els.btns.start.disabled = !ready;
+           if(ready) els.status.textContent = "";
+       }
+
+       // --- 游戏控制逻辑 ---
+
+       async function startGame() {
+           if (!state.chartFile) return;
+
+           // 显示加载遮罩
+           els.gameLoadingOverlay.style.display = 'flex';
+           
+           // 给UI时间渲染遮罩
+           await new Promise(resolve => setTimeout(resolve, 50));
+
+           try {
+               // 停止旧实例
+               if (state.playerInstance) {
+                   if (typeof state.playerInstance.stop === 'function') {
+                       state.playerInstance.stop();
+                   }
+                   if (state.playerInstance.destroy) {
+                       state.playerInstance.destroy();
+                   }
+                   state.playerInstance = null;
+               }
+
+               // 隐藏设置，显示画布
+               els.setupPanel.style.display = 'none';
+               els.gameControls.style.display = 'flex';
+               els.canvas.style.display = 'block';
+               
+               // 调整画布大小
+               resizeCanvas();
+               window.addEventListener('resize', resizeCanvas);
+
+               // 创建 URL
+               const chartUrl = readFile(state.chartFile);
+               const audioUrl = state.audioFile ? readFile(state.audioFile) : null;
+               const illuUrl = state.illuFile ? readFile(state.illuFile) : null;
+
+               state.playerInstance = new window.MilLunePlayer({
+                   buildDirectory: "/build/",
+                   resourcePackPath: "/resources/milres/default.mrp",
+                   canvas: els.canvas,
+                   chartPath: chartUrl,
+                   audioPath: audioUrl,
+                   illuPath: illuUrl,
+                   fontFam: "milFont",
+                   pauseBtnPath: "/resources/milres/buttons/light/pause.png",
+                   storyboardTextureLoader: storyboardTextureLoader,
+                   isAutoplay: els.checkAutoplay.checked
+               });
+
+               await state.playerInstance.init();
+               
+               // 隐藏加载遮罩
+               els.gameLoadingOverlay.style.display = 'none';
+
+               // 尝试全屏 (用户手势触发)
+               if (document.body.requestFullscreen) {
+                   document.body.requestFullscreen().catch(e => console.log("Fullscreen denied"));
+               }
+
+               state.playerInstance.start();
+
+               const renderLoop = () => {
+                   if (state.playerInstance) {
+                       state.playerInstance.render();
+                       requestAnimationFrame(renderLoop);
+                   }
+               };
+               renderLoop();
+
+           } catch (err) {
+               console.error(err);
+               els.gameLoadingOverlay.style.display = 'none';
+               alert("启动失败: " + err.message);
+               quitGame();
+           }
+       }
+
+       function resizeCanvas() {
+           els.canvas.width = window.innerWidth;
+           els.canvas.height = window.innerHeight;
+       }
+
+       function quitGame() {
+           // 停止播放器
+           if (state.playerInstance) {
+               if (typeof state.playerInstance.stop === 'function') {
+                   state.playerInstance.stop();
+               }
+               if (state.playerInstance.destroy) {
+                   state.playerInstance.destroy();
+               }
+               state.playerInstance = null;
+           }
+           
+           // 清理资源URL
+           // (简单处理：如果重新选择文件会自动覆盖，这里不逐个追踪 revoke)
+
+           els.canvas.style.display = 'none';
+           els.gameControls.style.display = 'none';
+           els.gameLoadingOverlay.style.display = 'none';
+           els.setupPanel.style.display = 'flex';
+           window.removeEventListener('resize', resizeCanvas);
+           
+           if (document.fullscreenElement) {
+               document.exitFullscreen();
+           }
+       }
+
+       // 按钮绑定
+       els.btns.start.addEventListener('click', startGame);
+       
+       els.btns.restart.addEventListener('click', () => {
+           // 重新开始即重新实例化，会先调用stop()
+           startGame();
+       });
+
+       els.btns.quit.addEventListener('click', quitGame);
+
+       els.btns.fullscreen.addEventListener('click', () => {
+           if (!document.fullscreenElement) {
+               document.body.requestFullscreen();
+           } else {
+               document.exitFullscreen();
+           }
+       });
+
+   </script>
+</body>
+</html>
