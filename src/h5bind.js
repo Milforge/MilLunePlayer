@@ -31,34 +31,6 @@ class _SeedBaseRandom {
     }
 }
 
-function _warp_ctx2d(raw) {
-    return new Proxy(raw, {
-        get: function(target, prop, receiver) {
-            if (prop == "drawImage") {
-                return (...args) => {
-                    if (!args[0].width || !args[0].height) {
-                        return;
-                    }
-
-                    return raw.drawImage(...args);
-                };
-            }
-
-            const value = target[prop];
-            
-            if (typeof value === "function") {
-                return value.bind(target);
-            }
-            
-            return value;
-        },
-        set: function(target, prop, value) {
-            target[prop] = value;
-            return true;
-        }
-    });
-}
-
 class _ShaderTextureGenerator {
     constructor() {
         this._cv = document.createElement("canvas");
@@ -196,6 +168,65 @@ class _ShaderTextureGenerator {
     }
 }
 
+function _warp_ctx2d(raw) {
+    return new Proxy(raw, {
+        get: function(target, prop, receiver) {
+            if (prop == "drawImage") {
+                return (...args) => {
+                    if (!args[0].width || !args[0].height) {
+                        return;
+                    }
+
+                    return raw.drawImage(...args);
+                };
+            }
+
+            const value = target[prop];
+            
+            if (typeof value === "function") {
+                return value.bind(target);
+            }
+            
+            return value;
+        },
+        set: function(target, prop, value) {
+            target[prop] = value;
+            return true;
+        }
+    });
+}
+
+function _solve_wasm_path(dir) {
+    return new URL(
+        `${dir}/millune_h5bind_wasm.js`, 
+        document.baseURI || window.location.href
+    ).href;
+}
+
+async function _normToUint8Array(input) {
+    if (input instanceof Uint8Array) {
+        return input;
+    }
+
+    if (input instanceof Uint8ClampedArray) {
+        return new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
+    }
+
+    if (input instanceof ArrayBuffer) {
+        return new Uint8Array(input);
+    }
+
+    if (ArrayBuffer.isView(input)) {
+        return new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
+    }
+
+    if (input instanceof Blob) {
+        return await _normToUint8Array(await input.arrayBuffer());
+    }
+
+    throw new Error("Unsupported input type: " + Object.prototype.toString.call(input));
+}
+
 class MilLunePlayer {
     constructor(options) {
         options = options || {};
@@ -259,9 +290,8 @@ class MilLunePlayer {
     async init() {
         this._rand = new _SeedBaseRandom();
 
-        const module = await import(`${this._buildDirectory}/millune_h5bind_wasm.js`);
+        const module = await import(_solve_wasm_path(this._buildDirectory));
         this._instance = await module.default();
-        console.log("instance:", this._instance);
 
         this._ctx = this.#call_wasm("h5bind_create_context");
 
@@ -571,7 +601,7 @@ void main() {
     }
 
     #get_note_texture(key) {
-        const info_size = 8 * 4;
+        const info_size = 8 * 6;
         const info_ptr = this.#call_wasm("malloc", info_size);
         const key_ptr = this.#malloc_string(key);
         const tex_ptr = this.#call_wasm(
@@ -582,23 +612,24 @@ void main() {
             info_ptr + 8,
             info_ptr + 16,
             info_ptr + 24,
+            info_ptr + 32,
+            info_ptr + 40,
         );
         const scale = this.#read_f64(info_ptr);
         const head_split = parseInt(this.#read_u64(info_ptr + 8));
         const tail_split = parseInt(this.#read_u64(info_ptr + 16));
-        const output_size = parseInt(this.#read_u64(info_ptr + 24));
-        const encoded_img = new Uint8Array(this._instance.HEAPU8.buffer, tex_ptr, output_size);
+        const output_width = parseInt(this.#read_u64(info_ptr + 24));
+        const output_height = parseInt(this.#read_u64(info_ptr + 32));
+        const output_size = parseInt(this.#read_u64(info_ptr + 40));
+        const rgba_data = new Uint8ClampedArray(this._instance.HEAPU8.buffer, tex_ptr, output_size).slice();
         this.#free(key_ptr);
         this.#free(info_ptr);
+        this.#free(tex_ptr);
 
         const result = new _NoteTexture();
-        result.image = new Promise((resolve, reject) => {
-            const img = new Image();
-            img.onload = () => resolve(img);
-            img.onerror = reject;
-            img.src = URL.createObjectURL(new Blob([encoded_img], { type: "image/png" }));
-            this.#free(tex_ptr);
-        }).then(this.#create_image_bitmap.bind(this));
+        result.image = this.#create_image_bitmap(new ImageData(
+            rgba_data, output_width, output_height
+        ));
         result.scale = scale;
         result.head_split = head_split * this._image_resizeopt_factor;
         result.tail_split = tail_split * this._image_resizeopt_factor;
@@ -607,7 +638,7 @@ void main() {
     }
 
     #get_line_head_texture() {
-        const info_size = 8 * 3;
+        const info_size = 8 * 5;
         const info_ptr = this.#call_wasm("malloc", info_size);
         const tex_ptr = this.#call_wasm(
             "h5bind_get_line_head_texture",
@@ -615,21 +646,22 @@ void main() {
             info_ptr,
             info_ptr + 8,
             info_ptr + 16,
+            info_ptr + 24,
+            info_ptr + 32,
         );
         const scale = this.#read_f64(info_ptr);
         const connect_point = this.#read_f64(info_ptr + 8);
-        const output_size = parseInt(this.#read_u64(info_ptr + 16));
-        const encoded_img = new Uint8Array(this._instance.HEAPU8.buffer, tex_ptr, output_size);
+        const output_width = parseInt(this.#read_u64(info_ptr + 16));
+        const output_height = parseInt(this.#read_u64(info_ptr + 24));
+        const output_size = parseInt(this.#read_u64(info_ptr + 32));
+        const rgba_data = new Uint8ClampedArray(this._instance.HEAPU8.buffer, tex_ptr, output_size).slice();
         this.#free(info_ptr);
+        this.#free(tex_ptr);
 
         const result = new _LineHeadTexture();
-        result.image = new Promise((resolve, reject) => {
-            const img = new Image();
-            img.onload = () => resolve(img);
-            img.onerror = reject;
-            img.src = URL.createObjectURL(new Blob([encoded_img], { type: "image/png" }));
-            this.#free(tex_ptr);
-        }).then(this.#create_image_bitmap.bind(this));
+        result.image = this.#create_image_bitmap(new ImageData(
+            rgba_data, output_width, output_height
+        ));
         result.scale = scale;
         result.connect_point = connect_point * this._image_resizeopt_factor;
 
@@ -708,7 +740,7 @@ void main() {
     }
 
     #apply_color_at_image(img, color) {
-        if (color[0] - 1 + color[1] - 1 + color[2] - 1 < 0.001) return img;
+        if (Math.abs(color[0] - 1) + Math.abs(color[1] - 1) + Math.abs(color[2] - 1) < 0.0001) return img;
         
         const ctx = _warp_ctx2d(this._applycolorcv.getContext("2d"));
         this._applycolorcv.width = img.width;
@@ -1084,6 +1116,95 @@ void main() {
     }
 };
 
+class MilImgDecoder {
+    constructor(options) {
+        options = options || {};
+
+        if (!options.buildDirectory) {
+            throw new Error("No buildDirectory specified");
+        }
+
+        this._buildDirectory = options.buildDirectory;
+    }
+
+    async init() {
+        const module = await import(_solve_wasm_path(this._buildDirectory));
+        this._instance = await module.default();
+    }
+
+    #call_wasm(func, ...args) {
+        return this._instance["_" + func](...args);
+    }
+
+    #read_u32(ptr) {
+        return new DataView(this._instance.HEAPU8.buffer, ptr, 4).getUint32(0, true);
+    }
+
+    #read_u64(ptr) {
+        return new DataView(this._instance.HEAPU8.buffer, ptr, 8).getBigUint64(0, true);
+    }
+
+    async load(milimg) {
+        milimg = await _normToUint8Array(milimg);
+
+        const dataPtr = this.#call_wasm("malloc", milimg.byteLength);
+        new Uint8Array(this._instance.HEAPU8.buffer, dataPtr, milimg.byteLength).set(milimg);
+
+        const ptr = this.#call_wasm("h5bind_load_milimg", dataPtr, BigInt(milimg.byteLength));
+        this.#call_wasm("free", dataPtr);
+
+        return ptr;
+    }
+
+    get_info(ptr) {
+        const info_size = 4 * 3;
+        const info_ptr = this.#call_wasm("malloc", info_size);
+        this.#call_wasm(
+            "h5bind_get_milimg_info",
+            ptr,
+            info_ptr,
+            info_ptr + 4,
+            info_ptr + 8
+        );
+
+        const version = this.#read_u32(info_ptr);
+        const width = this.#read_u32(info_ptr + 4);
+        const height = this.#read_u32(info_ptr + 8);
+
+        this.#call_wasm("free", info_ptr);
+
+        return { version, width, height };
+    }
+
+    decode(ptr) {
+        const info_size = 8 * 3;
+        const info_ptr = this.#call_wasm("malloc", info_size);
+        const decoded_ptr = this.#call_wasm(
+            "h5bind_decode_milimg",
+            ptr,
+            info_ptr,
+            info_ptr + 8,
+            info_ptr + 16
+        );
+
+        const width = parseInt(this.#read_u64(info_ptr));
+        const height = parseInt(this.#read_u64(info_ptr + 8));
+        const size = parseInt(this.#read_u64(info_ptr + 16));
+
+        const data = new Uint8Array(this._instance.HEAPU8.buffer, decoded_ptr, size).slice();
+
+        this.#call_wasm("free", decoded_ptr);
+        this.#call_wasm("free", info_ptr);
+
+        return { width, height, data };
+    }
+
+    free(ptr) {
+        this.#call_wasm("h5bind_release_milimg", ptr);
+    }
+};
+
 export default {
     MilLunePlayer,
+    MilImgDecoder
 };

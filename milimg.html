@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+   <meta charset="UTF-8">
+   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+   <title>MilImg 图像解码器</title>
+   <style>
+       * {
+           margin: 0;
+           padding: 0;
+           box-sizing: border-box;
+       }
+
+       body {
+           font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+           background: #1a1a1a;
+           color: #e0e0e0;
+           min-height: 100vh;
+           padding: 20px;
+       }
+
+       .container {
+           max-width: 800px;
+           margin: 0 auto;
+       }
+
+       h1 {
+           text-align: center;
+           margin-bottom: 30px;
+           color: #fff;
+           font-weight: 400;
+       }
+
+       .upload-section {
+           background: #252525;
+           padding: 30px;
+           border-radius: 8px;
+           text-align: center;
+           margin-bottom: 20px;
+           border: 2px dashed #444;
+           transition: border-color 0.3s;
+       }
+
+       .upload-section:hover {
+           border-color: #4a90e2;
+       }
+
+       .upload-btn {
+           display: inline-block;
+           background: #4a90e2;
+           color: white;
+           padding: 12px 30px;
+           border-radius: 4px;
+           cursor: pointer;
+           font-size: 16px;
+           transition: background 0.2s;
+       }
+
+       .upload-btn:hover {
+           background: #357abd;
+       }
+
+       #load-btn {
+           display: none;
+       }
+
+       .info-section {
+           background: #252525;
+           padding: 20px;
+           border-radius: 8px;
+           margin-bottom: 20px;
+           display: none;
+       }
+
+       .info-section h3 {
+           color: #4a90e2;
+           margin-bottom: 15px;
+           font-weight: 400;
+       }
+
+       #info {
+           background: #1a1a1a;
+           padding: 15px;
+           border-radius: 4px;
+           font-family: "Consolas", "Monaco", monospace;
+           font-size: 13px;
+           line-height: 1.6;
+           white-space: pre-wrap;
+           word-break: break-all;
+           max-height: 300px;
+           overflow-y: auto;
+       }
+
+       .image-section {
+           background: #252525;
+           padding: 20px;
+           border-radius: 8px;
+           text-align: center;
+           display: none;
+       }
+
+       .image-section h3 {
+           color: #4a90e2;
+           margin-bottom: 15px;
+           font-weight: 400;
+       }
+
+       #decoded-img {
+           max-width: 100%;
+           max-height: 500px;
+           border-radius: 4px;
+           background: #1a1a1a;
+       }
+
+       .action-btns {
+           margin-top: 20px;
+           display: flex;
+           gap: 10px;
+           justify-content: center;
+           flex-wrap: wrap;
+       }
+
+       .btn {
+           background: #4a90e2;
+           color: white;
+           border: none;
+           padding: 10px 20px;
+           border-radius: 4px;
+           cursor: pointer;
+           font-size: 14px;
+           transition: background 0.2s;
+           text-decoration: none;
+           display: inline-block;
+       }
+
+       .btn:hover {
+           background: #357abd;
+       }
+
+       .btn-secondary {
+           background: #555;
+       }
+
+       .btn-secondary:hover {
+           background: #666;
+       }
+
+       .loading {
+           display: none;
+           text-align: center;
+           padding: 40px;
+       }
+
+       .spinner {
+           width: 40px;
+           height: 40px;
+           border: 3px solid rgba(255,255,255,0.3);
+           border-top: 3px solid #4a90e2;
+           border-radius: 50%;
+           animation: spin 1s linear infinite;
+           margin: 0 auto 15px;
+       }
+
+       @keyframes spin {
+           0% { transform: rotate(0deg); }
+           100% { transform: rotate(360deg); }
+       }
+
+       .error {
+           background: #ff6b6b;
+           color: white;
+           padding: 15px;
+           border-radius: 4px;
+           margin-top: 20px;
+           display: none;
+       }
+   </style>
+</head>
+<body>
+   <div class="container">
+       <h1>🖼️ MilImg 图像解码器</h1>
+       
+       <div class="upload-section" id="drop-zone">
+           <label class="upload-btn" for="load-btn">选择 MilImg 文件</label>
+           <input id="load-btn" type="file" accept="*/*">
+           <p style="margin-top: 15px; color: #888; font-size: 14px;">或将文件拖放到此处</p>
+       </div>
+
+       <div class="loading" id="loading">
+           <div class="spinner"></div>
+           <p>正在解码...</p>
+       </div>
+
+       <div class="error" id="error"></div>
+
+       <div class="info-section" id="info-section">
+           <h3>📋 图像信息</h3>
+           <div id="info"></div>
+       </div>
+
+       <div class="image-section" id="image-section">
+           <h3>🎨 解码结果</h3>
+           <img id="decoded-img" alt="解码后的图像">
+           <div class="action-btns">
+               <a id="download-btn" class="btn" download="decoded.png">💾 导出 PNG</a>
+               <button class="btn btn-secondary" id="reset-btn">🔄 重置</button>
+           </div>
+       </div>
+   </div>
+
+   <script>
+       // 状态管理
+       let currentDecodedData = null;
+       let currentCanvas = null;
+
+       // DOM 元素
+       const els = {
+           loadBtn: document.getElementById('load-btn'),
+           dropZone: document.getElementById('drop-zone'),
+           loading: document.getElementById('loading'),
+           error: document.getElementById('error'),
+           infoSection: document.getElementById('info-section'),
+           info: document.getElementById('info'),
+           imageSection: document.getElementById('image-section'),
+           decodedImg: document.getElementById('decoded-img'),
+           downloadBtn: document.getElementById('download-btn'),
+           resetBtn: document.getElementById('reset-btn')
+       };
+
+       // RGBA 转 PNG Data URL
+       const rgbaToPng = (decoded) => {
+           const imgData = new ImageData(
+               new Uint8ClampedArray(decoded.data), 
+               decoded.width, 
+               decoded.height
+           );
+           const canvas = document.createElement("canvas");
+           canvas.width = decoded.width;
+           canvas.height = decoded.height;
+           const ctx = canvas.getContext("2d");
+           ctx.putImageData(imgData, 0, 0);
+           return {
+               dataUrl: canvas.toDataURL("image/png"),
+               canvas: canvas
+           };
+       };
+
+       // 显示错误
+       const showError = (msg) => {
+           els.error.textContent = msg;
+           els.error.style.display = 'block';
+           els.loading.style.display = 'none';
+       };
+
+       // 隐藏错误
+       const hideError = () => {
+           els.error.style.display = 'none';
+       };
+
+       // 重置界面
+       const resetUI = () => {
+           els.infoSection.style.display = 'none';
+           els.imageSection.style.display = 'none';
+           els.loading.style.display = 'none';
+           hideError();
+           els.loadBtn.value = '';
+           currentDecodedData = null;
+           currentCanvas = null;
+       };
+
+       // 处理文件
+       const processFile = async (file) => {
+           if (!file) return;
+           
+           hideError();
+           els.loading.style.display = 'block';
+           els.infoSection.style.display = 'none';
+           els.imageSection.style.display = 'none';
+
+           try {
+               const h5bind = await import("./src/h5bind.js");
+               const decoder = new h5bind.default.MilImgDecoder({
+                   buildDirectory: "./build/",
+               });
+
+               await decoder.init();
+
+               const arrayBuffer = await file.arrayBuffer();
+               const imgPtr = await decoder.load(arrayBuffer);
+               const info = decoder.get_info(imgPtr);
+               const decoded = await decoder.decode(imgPtr);
+
+               // 转换为 PNG
+               const { dataUrl, canvas } = rgbaToPng(decoded);
+               currentDecodedData = dataUrl;
+               currentCanvas = canvas;
+
+               // 显示信息
+               els.info.textContent = JSON.stringify(info, null, 2);
+               els.infoSection.style.display = 'block';
+
+               // 显示图像
+               els.decodedImg.src = dataUrl;
+               els.downloadBtn.href = dataUrl;
+               els.downloadBtn.download = file.name.replace(/\.[^/.]+$/, '') + '.png';
+               els.imageSection.style.display = 'block';
+
+               els.loading.style.display = 'none';
+
+           } catch (err) {
+               console.error(err);
+               showError('解码失败: ' + err.message);
+           }
+       };
+
+       // 文件选择事件
+       els.loadBtn.addEventListener('change', (e) => {
+           if (e.target.files.length > 0) {
+               processFile(e.target.files[0]);
+           }
+       });
+
+       // 拖放支持
+       els.dropZone.addEventListener('dragover', (e) => {
+           e.preventDefault();
+           els.dropZone.style.borderColor = '#4a90e2';
+       });
+
+       els.dropZone.addEventListener('dragleave', (e) => {
+           e.preventDefault();
+           els.dropZone.style.borderColor = '#444';
+       });
+
+       els.dropZone.addEventListener('drop', (e) => {
+           e.preventDefault();
+           els.dropZone.style.borderColor = '#444';
+           if (e.dataTransfer.files.length > 0) {
+               processFile(e.dataTransfer.files[0]);
+           }
+       });
+
+       // 重置按钮
+       els.resetBtn.addEventListener('click', resetUI);
+   </script>
+</body>
+</html>
